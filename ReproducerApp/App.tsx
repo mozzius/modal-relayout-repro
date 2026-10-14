@@ -16,19 +16,29 @@
  * The main screen also renders ROW_COUNT rows, so a full re-layout is
  * expensive enough to show up.
  *
- * Each sample is the time from the ticker's render to its useLayoutEffect.
- * With the Fabric renderer that span includes React's commit and the
- * ShadowTree commit (clone + layout + mount) on the JS thread.
+ * The update is applied with setNativeProps, which commits straight to the
+ * ShadowTree (ShadowNode::cloneTree + layout + mount) synchronously on the JS
+ * thread, so each sample times exactly one ShadowTree commit. A React state
+ * update can't show the difference: React's Fabric renderer clones every
+ * ancestor with an empty child list and then calls appendChild, which always
+ * dirties the ancestors, so every React commit lays out from the root anyway.
+ * The commits that pay for the Modal bug are the ones that don't go through
+ * React: state updates (e.g. scrolling a ScrollView inside the Modal),
+ * setNativeProps, and animation libraries that commit to the ShadowTree.
  *
  * @format
  */
 
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Button, Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  SafeAreaProvider,
-  SafeAreaView,
-} from 'react-native-safe-area-context';
+  Button,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 /** Rows in the main screen. Layout cost scales with this. */
 const ROW_COUNT = 1000;
@@ -55,38 +65,35 @@ function formatResult(result: Result | undefined) {
 }
 
 /**
- * Changes its own background color once per frame, FRAME_COUNT times, and
- * reports how long each render took to reach useLayoutEffect.
+ * Changes its own background color once per frame, FRAME_COUNT times, via
+ * setNativeProps, and reports how long each ShadowTree commit took.
  */
 function ColorTicker({ onDone }: { onDone: (result: Result) => void }) {
-  const [frame, setFrame] = useState(0);
-  const renderStart = useRef(0);
-  const samples = useRef<number[]>([]);
-
-  renderStart.current = performance.now();
-
-  useLayoutEffect(() => {
-    if (frame > 0) {
-      samples.current.push(performance.now() - renderStart.current);
-    }
-  }, [frame]);
+  const ref = useRef<React.ComponentRef<typeof View>>(null);
 
   useEffect(() => {
-    if (frame >= FRAME_COUNT) {
-      onDone(summarize(samples.current));
-      return;
-    }
-    const id = requestAnimationFrame(() => setFrame(value => value + 1));
+    const samples: number[] = [];
+    let frame = 0;
+    let id = 0;
+    const tick = () => {
+      if (frame >= FRAME_COUNT) {
+        onDone(summarize(samples));
+        return;
+      }
+      const start = performance.now();
+      ref.current?.setNativeProps({
+        style: { backgroundColor: COLORS[(frame + 1) % COLORS.length] },
+      });
+      samples.push(performance.now() - start);
+      frame++;
+      id = requestAnimationFrame(tick);
+    };
+    id = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(id);
-  }, [frame, onDone]);
+  }, [onDone]);
 
   return (
-    <View
-      style={[
-        styles.ticker,
-        { backgroundColor: COLORS[frame % COLORS.length] },
-      ]}
-    />
+    <View ref={ref} style={[styles.ticker, { backgroundColor: COLORS[0] }]} />
   );
 }
 
