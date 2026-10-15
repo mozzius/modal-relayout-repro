@@ -9,14 +9,20 @@
  * commit clones the path from the changed node to the root, so any update
  * under the Modal dirties the root.
  *
- * The app measures the same non-layout update (a background color change,
- * once per frame) in two places:
+ * The main screen renders ROW_COUNT rows, so a full re-layout is expensive
+ * enough to show up. There are two ways to trigger commits that change
+ * nothing layout-related:
+ *
+ * 1. A background color change, once per frame, timed on screen:
  *   - "Run outside Modal": the ticker sits in the main screen
  *   - "Run inside Modal": the ticker sits inside a <Modal>
- * The main screen also renders ROW_COUNT rows, so a full re-layout is
- * expensive enough to show up.
  *
- * The update is applied with setNativeProps, which commits straight to the
+ * 2. Scrolling, which commits a ScrollView contentOffset state update per
+ *    scroll event. JS can't time these, so measure them with a profiler:
+ *   - outside: scroll the main list
+ *   - inside: "Open scroll Modal", then scroll the list inside it
+ *
+ * The color change is applied with setNativeProps, which commits straight to the
  * ShadowTree (ShadowNode::cloneTree + layout + mount) synchronously on the JS
  * thread, so each sample times exactly one ShadowTree commit. A React state
  * update can't show the difference: React's Fabric renderer clones every
@@ -38,10 +44,11 @@ import {
   Text,
   View,
 } from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 /** Rows in the main screen. Layout cost scales with this. */
 const ROW_COUNT = 1000;
+/** Rows in the scroll Modal's list. */
+const MODAL_ROW_COUNT = 60;
 /** Color updates per run. */
 const FRAME_COUNT = 120;
 const COLORS = ['#f4cccc', '#d9ead3', '#cfe2f3', '#fff2cc'];
@@ -97,10 +104,10 @@ function ColorTicker({ onDone }: { onDone: (result: Result) => void }) {
   );
 }
 
-function Rows() {
+function Rows({ count }: { count: number }) {
   return (
     <>
-      {Array.from({ length: ROW_COUNT }, (_, index) => (
+      {Array.from({ length: count }, (_, index) => (
         <View key={index} style={styles.row}>
           <View style={styles.avatar} />
           <View style={styles.rowText}>
@@ -117,6 +124,7 @@ function App() {
   const [run, setRun] = useState<'outside' | 'inside' | null>(null);
   const [outside, setOutside] = useState<Result>();
   const [inside, setInside] = useState<Result>();
+  const [scrollModalOpen, setScrollModalOpen] = useState(false);
 
   const onOutsideDone = (result: Result) => {
     setOutside(result);
@@ -128,48 +136,65 @@ function App() {
   };
 
   return (
-    <SafeAreaProvider>
-      <SafeAreaView style={styles.container}>
-        <View style={styles.controls}>
-          <Button
-            title="Run outside Modal"
-            disabled={run !== null}
-            onPress={() => setRun('outside')}
-          />
-          <Button
-            title="Run inside Modal"
-            disabled={run !== null}
-            onPress={() => setRun('inside')}
-          />
-          <Text testID="outside-result">
-            Outside Modal: {formatResult(outside)}
-          </Text>
-          <Text testID="inside-result">
-            Inside Modal: {formatResult(inside)}
-          </Text>
-          {run === 'outside' && <ColorTicker onDone={onOutsideDone} />}
+    <View style={styles.container}>
+      <View style={styles.controls}>
+        <Button
+          title="Run outside Modal"
+          disabled={run !== null}
+          onPress={() => setRun('outside')}
+        />
+        <Button
+          title="Run inside Modal"
+          disabled={run !== null}
+          onPress={() => setRun('inside')}
+        />
+        <Text testID="outside-result">
+          Outside Modal: {formatResult(outside)}
+        </Text>
+        <Text testID="inside-result">Inside Modal: {formatResult(inside)}</Text>
+        <Button
+          title="Open scroll Modal"
+          disabled={run !== null}
+          onPress={() => setScrollModalOpen(true)}
+        />
+        {run === 'outside' && <ColorTicker onDone={onOutsideDone} />}
+      </View>
+      <ScrollView testID="main-list" style={styles.list}>
+        <Rows count={ROW_COUNT} />
+      </ScrollView>
+      <Modal
+        visible={run === 'inside'}
+        transparent
+        animationType="none"
+        onRequestClose={() => {}}
+      >
+        <View style={styles.modal}>
+          <Text>Running inside Modal…</Text>
+          {run === 'inside' && <ColorTicker onDone={onInsideDone} />}
         </View>
-        <ScrollView style={styles.list}>
-          <Rows />
-        </ScrollView>
-        <Modal
-          visible={run === 'inside'}
-          transparent
-          animationType="none"
-          onRequestClose={() => {}}
-        >
-          <View style={styles.modal}>
-            <Text>Running inside Modal…</Text>
-            {run === 'inside' && <ColorTicker onDone={onInsideDone} />}
-          </View>
-        </Modal>
-      </SafeAreaView>
-    </SafeAreaProvider>
+      </Modal>
+      <Modal
+        visible={scrollModalOpen}
+        transparent
+        animationType="none"
+        onRequestClose={() => setScrollModalOpen(false)}
+      >
+        <View style={styles.scrollModal}>
+          <Button
+            title="Close scroll Modal"
+            onPress={() => setScrollModalOpen(false)}
+          />
+          <ScrollView testID="modal-list" style={styles.list}>
+            <Rows count={MODAL_ROW_COUNT} />
+          </ScrollView>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: 'white' },
+  container: { flex: 1, paddingTop: 60, backgroundColor: 'white' },
   controls: { gap: 8, padding: 16 },
   ticker: { height: 40 },
   list: { flex: 1 },
@@ -190,6 +215,15 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 8,
     borderRadius: 12,
+    backgroundColor: 'white',
+  },
+  scrollModal: {
+    flex: 1,
+    marginTop: 300,
+    marginBottom: 40,
+    marginHorizontal: 16,
+    borderRadius: 12,
+    overflow: 'hidden',
     backgroundColor: 'white',
   },
 });
