@@ -19,8 +19,8 @@ where pixel-grid rounding was about 90% of the layout time in the Bluesky app.
 
 ## Filed as
 
-- React Native: TODO
-- Fix: TODO
+- React Native: [react/react-native#59100](https://github.com/react/react-native/issues/59100)
+- Fix: the `fixed` branch of this repo has the proposed change (not sent as a PR)
 
 ## Environment
 
@@ -203,7 +203,7 @@ dirties every ancestor up to the root, Modal or not:
 An earlier version of this repro timed a React state change from render to
 `useLayoutEffect`. It measured the same about 1 ms of full layout per commit
 inside and outside the Modal. The commits that pay for the Modal bug are the
-ones that don't go through React: state updates (scrolling, `TextInput`),
+ones that don't go through React: state updates such as scrolling,
 `setNativeProps`, and animation libraries that commit to the ShadowTree.
 
 ## The `fixed` branch
