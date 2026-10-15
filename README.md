@@ -20,7 +20,7 @@ where pixel-grid rounding was about 90% of the layout time in the Bluesky app.
 ## Filed as
 
 - React Native: [react/react-native#59100](https://github.com/react/react-native/issues/59100)
-- Fix: the `fixed` branch of this repo has the proposed change (not sent as a PR)
+- Fix: [react/react-native#59101](https://github.com/react/react-native/pull/59101) (the `fixed` branch of this repo applies the same change)
 
 ## Environment
 
